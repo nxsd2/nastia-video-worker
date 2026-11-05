@@ -1,0 +1,17 @@
+nastia_video_nodes — сторонний код
+
+film_grain.py (FastFilmGrain)
+  Источник: https://github.com/vrgamegirl19/comfyui-vrgamedevgirl
+  Коммит:   b442afd031326ab5b79378e18b656e1ec024a975 (nodes.py), файл LICENSE на этом
+            коммите: «MIT License». Copyright (c) Jean Thompson (VRGameDevGirl).
+  Более поздние версии пакета (с 2026-05-21 — AGPL-3.0, с 2026-09-26 — собственная
+  лицензия) не используются.
+
+fill/ (FL_RIFE, FL_IntToFloat, rife_arch)
+  Источник: https://github.com/filliptm/ComfyUI_Fill-Nodes
+  Коммит:   a32f9b6a5a55528731d9e6c38a2fd2ce89cb2819, Apache License 2.0 (fill/LICENSE).
+  Файлы копируются Dockerfile без изменений.
+
+fill/nodes/cache/rife_models/rife47.pth, rife49.pth
+  Веса RIFE (hzwer, Practical-RIFE), с https://huggingface.co/MachineDelusions/RIFE
+  ревизии 15e1387eeef9858f5267cf011134aef9192469f0 (sha256 — в Dockerfile).
