@@ -28,5 +28,10 @@ if [ $failed -ne 0 ]; then
   grep -iE "error|traceback|cannot import|No module" "$log" | head -40
   exit 1
 fi
+# Обработчик: наш поверх стокового импортируется (runpod, websocket — из venv образа).
+if ! (cd / && python -c "import handler, comfy_stock_handler; assert handler.stock is comfy_stock_handler; assert callable(comfy_stock_handler.handler)"); then
+  echo "build_check: наш обработчик не импортируется"
+  exit 1
+fi
 cd /comfyui && echo "build_check: ок, ComfyUI $(git describe --tags 2>/dev/null)"
 rm -f "$log"

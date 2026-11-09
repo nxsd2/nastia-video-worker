@@ -22,7 +22,9 @@
 #     FastFilmGrain — из comfyui-vrgamedevgirl на коммите под MIT (у новых версий пакета
 #     лицензия запрещает коммерческий сервис генерации, а узла там уже нет);
 # * Power Lora Loader (rgthree) и CR Simple Text Watermark не ставятся: конвертер полигона
-#   раскладывает Power Lora в цепочку LoraLoader ядра, знак выбрасывает (решение владельца).
+#   раскладывает Power Lora в цепочку LoraLoader ядра, знак выбрасывает (решение владельца);
+# * обработчик — наш поверх стокового (nastia_handler.py): ролик любой длины — в наше ведро
+#   по подписанным ссылкам из задачи (RunPod не отдаёт ответ больше ~20 МБ).
 ARG BASE_IMAGE=runpod/worker-comfyui:5.10.0-base-cuda12.8.1@sha256:45a1abd8796dbbcbc631f3d7d0db942946ce2f82ff24a070e3e6c527eeff9c47
 FROM ${BASE_IMAGE}
 
@@ -86,6 +88,12 @@ RUN uv pip install --python /opt/venv/bin/python \
 
 COPY nastia_video_nodes/ /comfyui/custom_nodes/nastia_video_nodes/
 COPY worker_start.sh rtx_warmup.py build_check.sh /nastia/
+
+# Обработчик (9 ноя): стоковый handler.py → модуль comfy_stock_handler, на его место —
+# наш (nastia_handler.py): ролик кладётся в наше ведро по подписанным ссылкам из задачи,
+# ключей от ведра на воркере нет. /start.sh по-прежнему запускает /handler.py.
+COPY nastia_handler.py /nastia/
+RUN mv /handler.py /comfy_stock_handler.py && cp /nastia/nastia_handler.py /handler.py
 
 # Проверка сборки: ComfyUI стартует на CPU и грузит все пакеты узлов; не загрузился
 # нужный пакет — сборка падает (узлы RTX без nvidia-vfx на сборке не грузятся — норма).
