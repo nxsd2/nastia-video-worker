@@ -120,6 +120,9 @@ ARG SAGE_REF=v2.2.0
 ARG SAGE_SHA=eb615cf6cf4d221338033340ee2de1c37fbdba4a
 ARG SAGE_ARCHS="8.9;12.0"
 ARG SAGE_MAX_JOBS=2
+# nvcc setup.py sage идёт с --threads=8: × MAX_JOBS = 16 процессов cicc/ptxas — раннер
+# GitHub (4 ядра, 16 ГБ) рискует OOM. Сужаем до SAGE_NVCC_THREADS.
+ARG SAGE_NVCC_THREADS=2
 RUN apt-get update && apt-get install -y --no-install-recommends \
       g++ python3.12-dev \
       cuda-nvcc-12-8 cuda-cudart-dev-12-8 cuda-nvrtc-dev-12-8 cuda-nvtx-12-8 \
@@ -131,12 +134,13 @@ ENV PATH=/usr/local/cuda/bin:${PATH}
 RUN set -eux; \
     /usr/local/cuda/bin/nvcc --version | tail -2; \
     python -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda, 'cxx11abi', torch._C._GLIBCXX_USE_CXX11_ABI)"; \
-    uv pip install --python /opt/venv/bin/python ninja setuptools wheel packaging; \
+    uv pip install --python /opt/venv/bin/python pip ninja setuptools wheel packaging; \
     git init -q /tmp/sage; git -C /tmp/sage remote add origin https://github.com/thu-ml/SageAttention; \
     git -C /tmp/sage fetch -q --depth 1 origin "refs/tags/${SAGE_REF}"; \
     [ "$(git -C /tmp/sage rev-parse FETCH_HEAD)" = "${SAGE_SHA}" ]; \
     git -C /tmp/sage -c advice.detachedHead=false checkout -q FETCH_HEAD; \
     cd /tmp/sage; \
+    grep -q -- '"--threads=8"' setup.py; sed -i "s/\"--threads=8\"/\"--threads=${SAGE_NVCC_THREADS}\"/" setup.py; \
     TORCH_CUDA_ARCH_LIST="${SAGE_ARCHS}" MAX_JOBS="${SAGE_MAX_JOBS}" EXT_PARALLEL=1 \
       python -m pip wheel -v --no-build-isolation --no-deps -w /wheels . >/tmp/sage-build.log 2>&1 \
       || { grep -iE "error|killed|fatal" /tmp/sage-build.log | head -60; tail -80 /tmp/sage-build.log; exit 1; }; \
