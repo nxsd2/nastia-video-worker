@@ -123,12 +123,18 @@ ARG SAGE_MAX_JOBS=2
 # nvcc setup.py sage идёт с --threads=8: × MAX_JOBS = 16 процессов cicc/ptxas — раннер
 # GitHub (4 ядра, 16 ГБ) рискует OOM. Сужаем до SAGE_NVCC_THREADS.
 ARG SAGE_NVCC_THREADS=2
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      g++ python3.12-dev \
-      cuda-nvcc-12-8 cuda-cudart-dev-12-8 cuda-nvrtc-dev-12-8 cuda-nvtx-12-8 \
-      cuda-profiler-api-12-8 cuda-cuobjdump-12-8 \
-      libcublas-dev-12-8 libcusparse-dev-12-8 libcusolver-dev-12-8 libcurand-dev-12-8 \
-    && rm -rf /var/lib/apt/lists/*
+# Библиотеки CUDA в базовом образе закреплены (apt-mark hold, напр. libcublas 12.8.4.1), а
+# свежие -dev требуют новее — ставим -dev РОВНО версии установленной библиотеки.
+RUN set -eux; apt-get update; apt-mark showhold | tr '\n' ' '; echo; \
+    pin() { v=$(dpkg-query -W -f='${Version}' "$1" 2>/dev/null || true); \
+            if [ -n "$v" ]; then echo "$2=$v"; else echo "$2"; fi; }; \
+    pkgs="g++ python3.12-dev cuda-nvcc-12-8 cuda-nvtx-12-8 cuda-profiler-api-12-8 cuda-cuobjdump-12-8 \
+      $(pin cuda-cudart-12-8 cuda-cudart-dev-12-8) $(pin cuda-nvrtc-12-8 cuda-nvrtc-dev-12-8) \
+      $(pin libcublas-12-8 libcublas-dev-12-8) $(pin libcusparse-12-8 libcusparse-dev-12-8) \
+      $(pin libcusolver-12-8 libcusolver-dev-12-8) $(pin libcurand-12-8 libcurand-dev-12-8)"; \
+    echo "sage-build apt: $pkgs"; \
+    apt-get install -y --no-install-recommends $pkgs; \
+    rm -rf /var/lib/apt/lists/*
 ENV CUDA_HOME=/usr/local/cuda
 ENV PATH=/usr/local/cuda/bin:${PATH}
 RUN set -eux; \
