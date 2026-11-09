@@ -51,7 +51,11 @@ fi
 # NastiaAttentionBackend) — иначе узел на поде упадёт.
 if ! (cd /comfyui && python - <<'PY'
 import sys
+# Как main.py: без enable_args_parsing() cli_args берёт parse_args([]) и --cpu не
+# действует — на раннере без видеокарты model_management падает на torch.cuda.
 sys.argv = ["main.py", "--cpu"]
+import comfy.options
+comfy.options.enable_args_parsing()
 import comfy.ldm.modules.attention as a
 assert a.SAGE_ATTENTION_IS_AVAILABLE and "sage" in a.REGISTERED_ATTENTION_FUNCTIONS, sorted(a.REGISTERED_ATTENTION_FUNCTIONS)
 print("build_check: внимание ComfyUI:", ", ".join(sorted(a.REGISTERED_ATTENTION_FUNCTIONS)))
