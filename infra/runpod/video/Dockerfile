@@ -32,6 +32,8 @@
 #   выбора sage в ComfyUI v0.43 нет (ModelAttentionBackend знает только pytorch и comfy
 #   kitchen), только глобальный флаг; узел ModelAttentionBackend=pytorch в графе
 #   возвращает модели pytorch и при включённом флаге.
+#   Без флага sage на ОДНУ модель ставит наш узел NastiaAttentionBackend(attention=
+#   "sage attention") — в графе перед KSampler нужного прохода (как ck на low).
 ARG BASE_IMAGE=runpod/worker-comfyui:5.10.0-base-cuda12.8.1@sha256:45a1abd8796dbbcbc631f3d7d0db942946ce2f82ff24a070e3e6c527eeff9c47
 FROM ${BASE_IMAGE} AS app
 

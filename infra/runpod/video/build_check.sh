@@ -47,6 +47,19 @@ PY
   echo "build_check: SageAttention не импортируется"
   exit 1
 fi
+# ComfyUI видит sage: функция `sage` в реестре внимания ядра (её берёт узел
+# NastiaAttentionBackend) — иначе узел на поде упадёт.
+if ! (cd /comfyui && python - <<'PY'
+import sys
+sys.argv = ["main.py", "--cpu"]
+import comfy.ldm.modules.attention as a
+assert a.SAGE_ATTENTION_IS_AVAILABLE and "sage" in a.REGISTERED_ATTENTION_FUNCTIONS, sorted(a.REGISTERED_ATTENTION_FUNCTIONS)
+print("build_check: внимание ComfyUI:", ", ".join(sorted(a.REGISTERED_ATTENTION_FUNCTIONS)))
+PY
+); then
+  echo "build_check: ComfyUI не видит sageattention"
+  exit 1
+fi
 grep -q -- '--log-stdout ${NASTIA_COMFY_ARGS:-} &$' /start.sh || { echo "build_check: в start.sh нет NASTIA_COMFY_ARGS"; exit 1; }
 cd /comfyui && echo "build_check: ок, ComfyUI $(git describe --tags 2>/dev/null)"
 rm -f "$log"
