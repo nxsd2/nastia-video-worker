@@ -24,9 +24,16 @@
 # * Power Lora Loader (rgthree) и CR Simple Text Watermark не ставятся: конвертер полигона
 #   раскладывает Power Lora в цепочку LoraLoader ядра, знак выбрасывает (решение владельца);
 # * обработчик — наш поверх стокового (nastia_handler.py): ролик любой длины — в наше ведро
-#   по подписанным ссылкам из задачи (RunPod не отдаёт ответ больше ~20 МБ).
+#   по подписанным ссылкам из задачи (RunPod не отдаёт ответ больше ~20 МБ);
+# * SageAttention 2.2.0 (thu-ml, Apache-2.0) — собирается в отдельной ступени `sage-build`
+#   (nvcc 12.8 + тот же torch, что в образе) под sm_89 (4090/L40S) и sm_120 (5090/PRO 6000),
+#   в итоговый образ — только wheel. ВЫКЛЮЧЕН по умолчанию: включает переменная пода
+#   NASTIA_SAGE_ATTENTION=1 (worker_start.sh → флаг ComfyUI --use-sage-attention). Узла
+#   выбора sage в ComfyUI v0.43 нет (ModelAttentionBackend знает только pytorch и comfy
+#   kitchen), только глобальный флаг; узел ModelAttentionBackend=pytorch в графе
+#   возвращает модели pytorch и при включённом флаге.
 ARG BASE_IMAGE=runpod/worker-comfyui:5.10.0-base-cuda12.8.1@sha256:45a1abd8796dbbcbc631f3d7d0db942946ce2f82ff24a070e3e6c527eeff9c47
-FROM ${BASE_IMAGE}
+FROM ${BASE_IMAGE} AS app
 
 ARG COMFYUI_REF=v0.43.0
 ARG GGUF_SHA=98e433ad74cf96aa3aa8539a9c27f8f99cadd4cd
@@ -94,6 +101,62 @@ COPY worker_start.sh rtx_warmup.py build_check.sh /nastia/
 # ключей от ведра на воркере нет. /start.sh по-прежнему запускает /handler.py.
 COPY nastia_handler.py /nastia/
 RUN mv /handler.py /comfy_stock_handler.py && cp /nastia/nastia_handler.py /handler.py
+
+# Доп. аргументы ComfyUI: стоковый /start.sh запускает main.py с жёстким набором флагов —
+# вставляем в обе строки запуска `${NASTIA_COMFY_ARGS:-}` (заполняет worker_start.sh;
+# пусто — запуск как раньше). Не нашлось ровно двух строк — сборка падает.
+RUN sed -i 's#--log-stdout &$#--log-stdout ${NASTIA_COMFY_ARGS:-} \&#' /start.sh \
+    && [ "$(grep -c -- '--log-stdout ${NASTIA_COMFY_ARGS:-} &$' /start.sh)" = 2 ] \
+    || { echo "start.sh: строки запуска ComfyUI не найдены"; grep -n main.py /start.sh; exit 1; }
+
+# ── SageAttention 2 (сборка wheel) ───────────────────────────────────────────
+# От `app`: тот же python 3.12, venv и torch (cu128) — ABI расширений совпадает. nvcc и
+# заголовки CUDA 12.8 — из apt-репозитория NVIDIA, он уже подключён в базовом образе.
+# Ступень в итоговый образ не попадает (только wheel).
+FROM app AS sage-build
+ARG SAGE_REF=v2.2.0
+ARG SAGE_SHA=eb615cf6cf4d221338033340ee2de1c37fbdba4a
+ARG SAGE_ARCHS="8.9;12.0"
+ARG SAGE_MAX_JOBS=2
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      g++ python3.12-dev \
+      cuda-nvcc-12-8 cuda-cudart-dev-12-8 cuda-nvrtc-dev-12-8 cuda-nvtx-12-8 \
+      cuda-profiler-api-12-8 cuda-cuobjdump-12-8 \
+      libcublas-dev-12-8 libcusparse-dev-12-8 libcusolver-dev-12-8 libcurand-dev-12-8 \
+    && rm -rf /var/lib/apt/lists/*
+ENV CUDA_HOME=/usr/local/cuda
+ENV PATH=/usr/local/cuda/bin:${PATH}
+RUN set -eux; \
+    /usr/local/cuda/bin/nvcc --version | tail -2; \
+    python -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda, 'cxx11abi', torch._C._GLIBCXX_USE_CXX11_ABI)"; \
+    uv pip install --python /opt/venv/bin/python ninja setuptools wheel packaging; \
+    git init -q /tmp/sage; git -C /tmp/sage remote add origin https://github.com/thu-ml/SageAttention; \
+    git -C /tmp/sage fetch -q --depth 1 origin "refs/tags/${SAGE_REF}"; \
+    [ "$(git -C /tmp/sage rev-parse FETCH_HEAD)" = "${SAGE_SHA}" ]; \
+    git -C /tmp/sage -c advice.detachedHead=false checkout -q FETCH_HEAD; \
+    cd /tmp/sage; \
+    TORCH_CUDA_ARCH_LIST="${SAGE_ARCHS}" MAX_JOBS="${SAGE_MAX_JOBS}" EXT_PARALLEL=1 \
+      python -m pip wheel -v --no-build-isolation --no-deps -w /wheels . >/tmp/sage-build.log 2>&1 \
+      || { grep -iE "error|killed|fatal" /tmp/sage-build.log | head -60; tail -80 /tmp/sage-build.log; exit 1; }; \
+    grep -E "Target compute capabilities|^creating|Successfully built" /tmp/sage-build.log | head -20; \
+    ls -la /wheels; \
+    mkdir /tmp/x; cd /tmp/x; python -m zipfile -e /wheels/sageattention-*.whl .; \
+    for so in sageattention/_qattn_sm80*.so sageattention/_qattn_sm89*.so sageattention/_fused*.so; do \
+      elfs=$(cuobjdump --list-elf "$so"); echo "$so: $(echo "$elfs" | grep -oE 'sm_[0-9]+' | sort -u | tr '\n' ' ')"; \
+      { echo "$elfs" | grep -q sm_89 && echo "$elfs" | grep -q sm_120; } || { echo "$so: нет sm_89/sm_120"; exit 1; }; \
+    done; \
+    rm -rf /tmp/x /tmp/sage /tmp/sage-build.log
+
+# ── Итоговый образ ───────────────────────────────────────────────────────────
+FROM app
+# SageAttention: wheel из `sage-build`. gcc + python3.12-dev — для triton: на sm_89 sage
+# квантует Q/K ядром triton, а triton на первом запуске компилирует свой загрузчик C
+# (без компилятора sage падал на поде 8 ноя). На sm_120 путь целиком на CUDA.
+COPY --from=sage-build /wheels/ /tmp/wheels/
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev python3.12-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && uv pip install --no-deps --python /opt/venv/bin/python /tmp/wheels/sageattention-*.whl \
+    && rm -rf /tmp/wheels /root/.cache/uv
 
 # Проверка сборки: ComfyUI стартует на CPU и грузит все пакеты узлов; не загрузился
 # нужный пакет — сборка падает (узлы RTX без nvidia-vfx на сборке не грузятся — норма).

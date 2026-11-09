@@ -30,7 +30,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 240
     steps:
       # Базовый образ — 14,3 ГБ в сжатом виде: на стоковом раннере места нет. Убираем
       # предустановленное (Android SDK, .NET, Haskell, CodeQL…) и кладём данные Docker на /mnt.

@@ -33,5 +33,20 @@ if ! (cd / && python -c "import handler, comfy_stock_handler; assert handler.sto
   echo "build_check: наш обработчик не импортируется"
   exit 1
 fi
+# SageAttention 2: пакет и расширения CUDA импортируются без видеокарты (libcuda не нужна),
+# ядра под sm_89 и sm_120 сверены cuobjdump на ступени sage-build. Флаг ComfyUI
+# --use-sage-attention в стоковом start.sh подставляется через NASTIA_COMFY_ARGS.
+if ! (cd / && python - <<'PY'
+import importlib.metadata as md
+import sageattention, sageattention.core as core
+from sageattention import _fused, _qattn_sm80, _qattn_sm89
+assert core.SM80_ENABLED and core.SM89_ENABLED, "sm80/sm89 compile modules not loaded"
+print("build_check: sageattention", md.version("sageattention"))
+PY
+); then
+  echo "build_check: SageAttention не импортируется"
+  exit 1
+fi
+grep -q -- '--log-stdout ${NASTIA_COMFY_ARGS:-} &$' /start.sh || { echo "build_check: в start.sh нет NASTIA_COMFY_ARGS"; exit 1; }
 cd /comfyui && echo "build_check: ок, ComfyUI $(git describe --tags 2>/dev/null)"
 rm -f "$log"

@@ -106,4 +106,26 @@ if [ -d /comfyui/custom_nodes/Nvidia_RTX_Nodes_ComfyUI ]; then
   rtx_vfx && rtx_ngx \
     && { timeout 180 "$PY" /nastia/rtx_warmup.py & }
 fi
+
+# ── Внимание ComfyUI (по умолчанию — как было: pytorch) ──────────────────────
+# NASTIA_SAGE_ATTENTION=1 — SageAttention 2 (в образе с ветки bench-sage2) глобально, флаг
+# ComfyUI --use-sage-attention. Узел ModelAttentionBackend=pytorch в графе возвращает
+# конкретной модели pytorch. Пакета нет / не импортируется — воркер НЕ стартует (явная
+# ошибка вместо тихого возврата на pytorch: замер иначе врёт).
+# NASTIA_COMFY_EXTRA_ARGS — прочие флаги main.py (для замеров), по умолчанию пусто.
+NASTIA_COMFY_ARGS="${NASTIA_COMFY_EXTRA_ARGS:-}"
+case "${NASTIA_SAGE_ATTENTION:-0}" in
+  1|true|TRUE|yes)
+    if "$PY" -c "import sageattention" 2>/dev/null; then
+      NASTIA_COMFY_ARGS="$NASTIA_COMFY_ARGS --use-sage-attention"
+      echo "video: внимание — SageAttention $("$PY" -c "import importlib.metadata as m; print(m.version('sageattention'))")"
+    else
+      echo "video: NASTIA_SAGE_ATTENTION=1, но sageattention не импортируется — образ без sage"
+      "$PY" -c "import sageattention" 2>&1 | tail -5
+      exit 1
+    fi ;;
+  *) echo "video: внимание — pytorch (NASTIA_SAGE_ATTENTION не задан)" ;;
+esac
+[ -n "$NASTIA_COMFY_ARGS" ] && echo "video: доп. флаги ComfyUI:$NASTIA_COMFY_ARGS"
+export NASTIA_COMFY_ARGS
 exec /start.sh
